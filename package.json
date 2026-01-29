@@ -1,0 +1,28 @@
+{
+  "name": "com.xavierarpa.namespacepath",
+  "displayName": "Namespace Path",
+  "version": "1.0.0",
+  "author": "Xavier Arpa",
+  "unity": "2020.3",
+  "documentation": "README.md",
+  "description": "Unity Editor tool for managing and refactoring C# namespaces based on folder structure. Automatically suggests namespaces, updates using statements, and cleans up unused references.",
+  "keywords": [
+    "namespace",
+    "refactor",
+    "editor",
+    "tool",
+    "code"
+  ],
+  "dependencies": {},
+  "samples": [],
+  "license": "MIT",
+  "category": "Tools",
+  "repository": {
+    "url": "https://github.com/xavierarpa/NamespacePath.git",
+    "type": "git"
+  },
+  "bugs": {
+    "url": "https://github.com/xavierarpa/NamespacePath/issues"
+  },
+  "homepage": "https://github.com/xavierarpa/NamespacePath#readme"
+}
