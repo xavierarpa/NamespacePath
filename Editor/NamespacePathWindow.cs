@@ -40,7 +40,9 @@ namespace NamespacePath.Editor
         private DefaultAsset sourceFolder;
         private DefaultAsset searchFolder;
         private string namespacePrefix = "WonderWilds";
+        private string namespaceExclude = "";
         private bool useSourceAsRoot = true;
+        private bool removeDuplicates = true;
 
         // State
         private List<ScriptNamespaceInfo> scriptInfos = new List<ScriptNamespaceInfo>();
@@ -179,6 +181,18 @@ namespace NamespacePath.Editor
                     RefreshSuggestions();
                 }
 
+                // Exclude patterns
+                EditorGUILayout.Space(3);
+                EditorGUI.BeginChangeCheck();
+                namespaceExclude = EditorGUILayout.TextField(
+                    new GUIContent("Exclude from Namespace", "Comma-separated parts to remove from the suggested namespace (e.g., 'Runtime,Scripts')"),
+                    namespaceExclude
+                );
+                if (EditorGUI.EndChangeCheck() && scriptInfos.Count > 0)
+                {
+                    RefreshSuggestions();
+                }
+
                 // Use source as root
                 EditorGUILayout.Space(3);
                 EditorGUI.BeginChangeCheck();
@@ -187,6 +201,20 @@ namespace NamespacePath.Editor
                         "If enabled, namespace is generated from source folder. " +
                         "Otherwise, it's generated from Assets/"),
                     useSourceAsRoot
+                );
+                if (EditorGUI.EndChangeCheck() && scriptInfos.Count > 0)
+                {
+                    RefreshSuggestions();
+                }
+
+                // Remove duplicates
+                EditorGUILayout.Space(3);
+                EditorGUI.BeginChangeCheck();
+                removeDuplicates = EditorGUILayout.Toggle(
+                    new GUIContent("Remove Duplicates", 
+                        "If enabled, removes duplicate parts from the namespace (right to left). " +
+                        "E.g., 'A.Core.B.Core' becomes 'A.Core.B'"),
+                    removeDuplicates
                 );
                 if (EditorGUI.EndChangeCheck() && scriptInfos.Count > 0)
                 {
@@ -467,7 +495,8 @@ namespace NamespacePath.Editor
 
             try
             {
-                scriptInfos = NamespaceScanner.ScanScripts(fullSourcePath, namespacePrefix, rootPath);
+                string[] excludePatterns = ParseExcludePatterns(namespaceExclude);
+                scriptInfos = NamespaceScanner.ScanScripts(fullSourcePath, namespacePrefix, rootPath, excludePatterns, removeDuplicates);
                 
                 int needsChange = scriptInfos.Count(s => s.NeedsChange);
                 int noNamespace = scriptInfos.Count(s => s.HasNoNamespace);
@@ -509,12 +538,15 @@ namespace NamespacePath.Editor
                 rootPath = System.IO.Path.GetFullPath("Assets");
             }
 
+            string[] excludePatterns = ParseExcludePatterns(namespaceExclude);
             foreach (var script in scriptInfos)
             {
                 script.SuggestedNamespace = NamespaceScanner.GenerateSuggestedNamespace(
                     script.FilePath,
                     rootPath,
-                    namespacePrefix
+                    namespacePrefix,
+                    excludePatterns,
+                    removeDuplicates
                 );
             }
 
@@ -608,6 +640,20 @@ namespace NamespacePath.Editor
             showAffectedPanel = false;
             statusMessage = "";
             Repaint();
+        }
+
+        private string[] ParseExcludePatterns(string excludeInput)
+        {
+            if (string.IsNullOrWhiteSpace(excludeInput))
+            {
+                return System.Array.Empty<string>();
+            }
+
+            return excludeInput
+                .Split(',')
+                .Select(s => s.Trim())
+                .Where(s => !string.IsNullOrEmpty(s))
+                .ToArray();
         }
 
         private void ScanAffectedFiles()

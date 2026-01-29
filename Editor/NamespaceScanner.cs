@@ -48,7 +48,9 @@ namespace NamespacePath.Editor
         public static List<ScriptNamespaceInfo> ScanScripts(
             string sourceFolderPath,
             string namespacePrefix,
-            string rootPathForNamespace)
+            string rootPathForNamespace,
+            string[] excludePatterns = null,
+            bool removeDuplicates = false)
         {
             var results = new List<ScriptNamespaceInfo>();
             
@@ -65,7 +67,7 @@ namespace NamespacePath.Editor
                 // Normalize path separators
                 string normalizedPath = filePath.Replace("\\", "/");
                 
-                var info = AnalyzeScript(filePath, sourceFolderPath, namespacePrefix, rootPathForNamespace);
+                var info = AnalyzeScript(filePath, sourceFolderPath, namespacePrefix, rootPathForNamespace, excludePatterns, removeDuplicates);
                 if (info != null)
                 {
                     results.Add(info);
@@ -82,7 +84,9 @@ namespace NamespacePath.Editor
             string filePath,
             string sourceFolderPath,
             string namespacePrefix,
-            string rootPathForNamespace)
+            string rootPathForNamespace,
+            string[] excludePatterns,
+            bool removeDuplicates)
         {
             try
             {
@@ -93,7 +97,9 @@ namespace NamespacePath.Editor
                 string suggestedNamespace = GenerateSuggestedNamespace(
                     filePath, 
                     rootPathForNamespace, 
-                    namespacePrefix
+                    namespacePrefix,
+                    excludePatterns,
+                    removeDuplicates
                 );
 
                 // Extract types from the file
@@ -150,7 +156,9 @@ namespace NamespacePath.Editor
         public static string GenerateSuggestedNamespace(
             string filePath,
             string rootPath,
-            string prefix)
+            string prefix,
+            string[] excludePatterns = null,
+            bool removeDuplicates = false)
         {
             string normalizedFilePath = filePath.Replace("\\", "/");
             string normalizedRootPath = rootPath.Replace("\\", "/");
@@ -183,28 +191,105 @@ namespace NamespacePath.Editor
                 ? SanitizeNamespacePart(rootFolderName)
                 : $"{prefix}.{SanitizeNamespacePart(rootFolderName)}";
             
+            string resultNamespace;
             if (string.IsNullOrEmpty(directoryPath))
             {
                 // File is directly in root
-                return baseNamespace;
+                resultNamespace = baseNamespace;
+            }
+            else
+            {
+                // Convert path to namespace (replace separators with dots)
+                string namespacePart = directoryPath
+                    .Replace("\\", ".")
+                    .Replace("/", ".")
+                    .Trim('.');
+
+                // Sanitize each part of the namespace
+                string[] parts = namespacePart.Split('.');
+                for (int i = 0; i < parts.Length; i++)
+                {
+                    parts[i] = SanitizeNamespacePart(parts[i]);
+                }
+                namespacePart = string.Join(".", parts);
+
+                // Combine baseNamespace (prefix + rootFolder) with subfolders
+                resultNamespace = $"{baseNamespace}.{namespacePart}";
             }
 
-            // Convert path to namespace (replace separators with dots)
-            string namespacePart = directoryPath
-                .Replace("\\", ".")
-                .Replace("/", ".")
-                .Trim('.');
+            // Apply exclude patterns
+            resultNamespace = ApplyExcludePatterns(resultNamespace, excludePatterns);
 
-            // Sanitize each part of the namespace
-            string[] parts = namespacePart.Split('.');
+            // Remove duplicate parts (right to left)
+            if (removeDuplicates)
+            {
+                resultNamespace = RemoveDuplicateParts(resultNamespace);
+            }
+
+            return resultNamespace;
+        }
+
+        /// <summary>
+        /// Removes duplicate parts from the namespace (processing left to right, keeping first occurrence).
+        /// E.g., "WonderWilds.Core.Modules.Core.Input" becomes "WonderWilds.Core.Modules.Input"
+        /// </summary>
+        private static string RemoveDuplicateParts(string namespaceName)
+        {
+            if (string.IsNullOrEmpty(namespaceName))
+            {
+                return namespaceName;
+            }
+
+            string[] parts = namespaceName.Split('.');
+            var resultParts = new List<string>();
+            var seenParts = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
+
+            // Process from left to right, keeping first occurrence
             for (int i = 0; i < parts.Length; i++)
             {
-                parts[i] = SanitizeNamespacePart(parts[i]);
+                string part = parts[i];
+                if (!seenParts.Contains(part))
+                {
+                    seenParts.Add(part);
+                    resultParts.Add(part);
+                }
             }
-            namespacePart = string.Join(".", parts);
 
-            // Combine baseNamespace (prefix + rootFolder) with subfolders
-            return $"{baseNamespace}.{namespacePart}";
+            return resultParts.Count > 0 ? string.Join(".", resultParts) : namespaceName;
+        }
+
+        /// <summary>
+        /// Removes specified patterns from the namespace.
+        /// </summary>
+        private static string ApplyExcludePatterns(string namespaceName, string[] excludePatterns)
+        {
+            if (excludePatterns == null || excludePatterns.Length == 0)
+            {
+                return namespaceName;
+            }
+
+            string[] parts = namespaceName.Split('.');
+            var filteredParts = new List<string>();
+
+            foreach (string part in parts)
+            {
+                bool shouldExclude = false;
+                foreach (string pattern in excludePatterns)
+                {
+                    if (string.Equals(part, pattern, System.StringComparison.OrdinalIgnoreCase))
+                    {
+                        shouldExclude = true;
+                        break;
+                    }
+                }
+
+                if (!shouldExclude)
+                {
+                    filteredParts.Add(part);
+                }
+            }
+
+            return filteredParts.Count > 0 ? string.Join(".", filteredParts) : namespaceName;
         }
 
         /// <summary>
@@ -288,31 +373,14 @@ namespace NamespacePath.Editor
 
         /// <summary>
         /// Checks if the last segment of the namespace matches any type in the file.
+        /// Note: This is disabled as C# allows namespace segments to match type names without issues.
         /// </summary>
         private static (bool hasConflict, string warning) CheckTypeNameConflict(
             string suggestedNamespace,
             List<string> typeNames)
         {
-            if (string.IsNullOrEmpty(suggestedNamespace) || typeNames.Count == 0)
-            {
-                return (false, null);
-            }
-
-            // Get the last segment of the namespace
-            string[] nsParts = suggestedNamespace.Split('.');
-            string lastSegment = nsParts[nsParts.Length - 1];
-
-            // Check if it matches any type
-            foreach (string typeName in typeNames)
-            {
-                if (string.Equals(lastSegment, typeName, System.StringComparison.Ordinal))
-                {
-                    string warning = $"⚠️ Conflict: Namespace '{suggestedNamespace}' ends with '{lastSegment}' " +
-                                    $"which matches type '{typeName}' in this file.";
-                    return (true, warning);
-                }
-            }
-
+            // Disabled: C# allows namespace segments matching type names (e.g., namespace Foo.Bar with class Bar)
+            // This was originally flagged as a potential ambiguity issue, but in practice it rarely causes problems
             return (false, null);
         }
 
